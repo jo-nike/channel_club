@@ -8,21 +8,32 @@ Data sources:
   - Infinity: live channel catalogue from the Dispatcharr HDHR lineup and the
     ErsatzTV XMLTV, outer-joined to Loki watch time to surface unused channels.
 
-Deploy:
-  set -a; . ~/.config/grafana/claude-code.env; set +a
-  curl -X POST http://192.168.50.79:3000/api/dashboards/db \
+The committed dashboard uses example URLs. To deploy, generate one with your
+own catalogue and app URLs to a path outside the repo, then post it:
+  DASHBOARD_DISPATCHARR_LINEUP_URL=https://dispatcharr.lan/hdhr/lineup.json \
+  DASHBOARD_ERSATZTV_XMLTV_URL=http://ersatztv.lan:8409/iptv/xmltv.xml \
+  DASHBOARD_CHANNEL_CLUB_URL=https://tv.lan \
+    python3 ops/grafana/generate-channel-club-dashboard.py /tmp/channel-club.json
+  curl -X POST "$GRAFANA_URL/api/dashboards/db" \
     -H "Authorization: Bearer $GRAFANA_TOKEN" -H "Content-Type: application/json" \
-    -d @ops/grafana/dashboards/channel-club.json
+    -d @/tmp/channel-club.json
 """
 
 import json
+import os
+import sys
 from pathlib import Path
 
 LOKI_DS = {"type": "loki", "uid": "P8E80F9AEF21F6940"}
 INFINITY_DS = {"type": "yesoreyeram-infinity-datasource", "uid": "infinity"}
 
-DISPATCHARR_LINEUP_URL = "https://streams.example.com/hdhr/lineup.json"
-ERSATZTV_XMLTV_URL = "http://192.168.50.108:8409/iptv/xmltv.xml"
+DISPATCHARR_LINEUP_URL = os.environ.get(
+    "DASHBOARD_DISPATCHARR_LINEUP_URL", "https://dispatcharr.example.com/hdhr/lineup.json"
+)
+ERSATZTV_XMLTV_URL = os.environ.get(
+    "DASHBOARD_ERSATZTV_XMLTV_URL", "http://ersatztv.example.com:8409/iptv/xmltv.xml"
+)
+CHANNEL_CLUB_URL = os.environ.get("DASHBOARD_CHANNEL_CLUB_URL", "https://tv.example.com")
 
 # Base stream: JSON-parsed channel-club logs, filtered by the dashboard variables.
 # Only watch.* and programme.* carry a view: session.* (every client connects as the
@@ -393,7 +404,7 @@ dashboard = {
                 "titleFormat": "Server start", "textFormat": "{{record_extra_version}} build {{record_extra_build_id}}",
             },
         ]},
-        "links": [{"title": "Channel Club", "type": "link", "url": "https://tv.example.com", "targetBlank": True}],
+        "links": [{"title": "Channel Club", "type": "link", "url": CHANNEL_CLUB_URL, "targetBlank": True}],
     },
     "overwrite": True,
     "message": "Channel Club viewing dashboard",
@@ -412,4 +423,4 @@ def main(path: Path = OUTPUT_PATH) -> None:
 
 # Importable without writing: the backend contract test reads `dashboard`.
 if __name__ == "__main__":
-    main()
+    main(Path(sys.argv[1]) if len(sys.argv) > 1 else OUTPUT_PATH)
