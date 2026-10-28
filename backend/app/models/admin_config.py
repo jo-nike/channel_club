@@ -29,6 +29,7 @@ class ConfigValues(CamelModel):
     dispatcharr_url: str
     dispatcharr_api_key: SecretState
     ersatztv_base_url: str
+    ersatztv_api_key: SecretState
     # Who can join
     local_auth_enabled: bool
     admin_username: str
@@ -145,6 +146,7 @@ def _http_url(value: object) -> object:
 NULLABLE = frozenset(
     {
         "dispatcharr_api_key",
+        "ersatztv_api_key",
         "admin_password",
         "viewer_password",
         "giphy_api_key",
@@ -167,6 +169,7 @@ class ConfigPatch(CamelModel):
     dispatcharr_url: str | None = Field(default=None, max_length=2048)
     dispatcharr_api_key: str | None = Field(default=None, min_length=1, max_length=512)
     ersatztv_base_url: str | None = Field(default=None, max_length=2048)
+    ersatztv_api_key: str | None = Field(default=None, min_length=1, max_length=512)
     local_auth_enabled: bool | None = None
     admin_username: str | None = Field(default=None, pattern=USERNAME_PATTERN)
     admin_password: str | None = Field(default=None, max_length=256, min_length=MIN_PASSWORD_LENGTH)
@@ -257,6 +260,7 @@ class ProbeValues(CamelModel):
     dispatcharr_url: str | None = Field(default=None, max_length=2048)
     dispatcharr_api_key: str | None = Field(default=None, min_length=1, max_length=512)
     ersatztv_base_url: str | None = Field(default=None, max_length=2048)
+    ersatztv_api_key: str | None = Field(default=None, min_length=1, max_length=512)
     giphy_api_key: str | None = Field(default=None, min_length=1, max_length=256)
     zipline_url: str | None = Field(default=None, max_length=2048)
     zipline_token: str | None = Field(default=None, min_length=1, max_length=512)

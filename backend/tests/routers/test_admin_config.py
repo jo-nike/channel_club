@@ -529,6 +529,33 @@ class TestConnectionTests:
         assert result["ok"] is True
         assert (result["counts"]["channels"], result["counts"]["guideDays"]) == (2, 2)
 
+    @pytest.mark.parametrize(("status", "ok"), [(200, True), (401, False)])
+    def test_ersatztv_checks_an_api_key_when_given(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, status: int, ok: bool
+    ) -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/version":
+                return httpx.Response(status, json={})
+            if request.url.path.endswith(".m3u"):
+                return httpx.Response(200, text="#EXTM3U\n#EXTINF:-1,One\nu1\n")
+            return httpx.Response(200, text="<tv/>")
+
+        requests = upstream(monkeypatch, respond)
+
+        result = client.post(
+            "/api/admin/config/test",
+            headers=ADMIN,
+            json={
+                "kind": "ersatztv",
+                "values": {"ersatztvBaseUrl": "http://e.test:8409", "ersatztvApiKey": "k"},
+            },
+        ).json()
+
+        assert result["ok"] is ok
+        assert result["reason"] == (None if ok else "auth")
+        version = [r for r in requests if r.url.path == "/api/version"]
+        assert [r.headers["x-etv-api-key"] for r in version] == ["k"]
+
     def test_zipline_reports_the_account(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:

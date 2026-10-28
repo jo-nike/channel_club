@@ -455,6 +455,19 @@
             ],
             "title": "Dispatcharrurl"
           },
+          "ersatztvApiKey": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ersatztvapikey"
+          },
           "ersatztvBaseUrl": {
             "anyOf": [
               {
@@ -964,6 +977,9 @@
             "title": "Dispatcharrurl",
             "type": "string"
           },
+          "ersatztvApiKey": {
+            "$ref": "#/components/schemas/SecretState"
+          },
           "ersatztvBaseUrl": {
             "title": "Ersatztvbaseurl",
             "type": "string"
@@ -1117,6 +1133,7 @@
           "dispatcharrUrl",
           "dispatcharrApiKey",
           "ersatztvBaseUrl",
+          "ersatztvApiKey",
           "localAuthEnabled",
           "adminUsername",
           "adminPassword",
@@ -2752,6 +2769,19 @@
               }
             ],
             "title": "Dispatcharrurl"
+          },
+          "ersatztvApiKey": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ersatztvapikey"
           },
           "ersatztvBaseUrl": {
             "anyOf": [

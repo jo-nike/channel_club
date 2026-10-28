@@ -111,11 +111,15 @@ async def _guide_days(client: httpx.AsyncClient, base: str) -> int | None:
 
 async def _ersatztv(client: httpx.AsyncClient, values: Mapping[str, str]) -> ProbeCounts:
     base = values.get("ersatztv_base_url", "")
+    key = values.get("ersatztv_api_key", "")
     if not base:
         raise ProbeFailedError("invalid")
     playlist, days = await asyncio.gather(
         _read(client, "GET", f"{base}/iptv/channels.m3u"), _guide_days(client, base)
     )
+    if key:
+        # Only the session stats need the key, so it is checked only when given
+        await _read(client, "GET", f"{base}/api/version", headers={"X-Etv-Api-Key": key})
     text = playlist.decode("utf-8", "replace")
     if not text.lstrip().startswith("#EXTM3U"):
         raise ProbeFailedError("invalid")
