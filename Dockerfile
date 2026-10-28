@@ -81,8 +81,8 @@ RUN useradd --create-home --uid 10001 appuser \
 ENV STATE_FILE=/data/state.json
 USER appuser
 
-# Expose port 8080
-EXPOSE 8080
+# Expose port 8334
+EXPOSE 8334
 
 # Invoke the venv's uvicorn directly rather than via `uv run`: uv would try to
 # re-resolve and write to the environment at startup, which a non-root user
@@ -90,6 +90,6 @@ EXPOSE 8080
 # The frame ceiling sits above the app's 16 KiB message cap (MAX_MESSAGE_BYTES)
 # so oversize frames are refused (1009) before uvicorn buffers them; without
 # permessage-deflate a small frame cannot inflate into a large one.
-CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", \
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8334", \
      "--ws-max-size", "32768", "--ws-per-message-deflate", "false", \
      "--timeout-graceful-shutdown", "8"]

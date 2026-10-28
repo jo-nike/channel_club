@@ -42,25 +42,17 @@ recorded alongside `version` and `build_id` in `deployment.json`; previous recor
 prior artifact addressable without relying on a mutable tag. Rollback restores
 that recorded digest, not a newly resolved tag with an old version label.
 
-Run `python3 -m scripts.check_release_images` from the repository root for the
-optional real Docker identity check. It requires a preexisting `alpine:latest`,
-builds two isolated synthetic images from the same source marker, replaces a
-fixture Compose container, and restores the first content ID. It removes only
-its own named fixture resources. This exercises real local Docker image changes
-and rollback; it does not publish images, test the remote registry, or deploy the
-application.
-
-## Clip editor browser check
-
-Run `node scripts/check-clip-editor.mjs` with frontend dependencies installed,
-FFmpeg available, and Chrome (`CHROME_BIN` can override the executable). It starts
-an isolated Vite harness with generated media and mock APIs. It checks both
-player controls, thumbnails, keyboard/pointer trimming, matching download/upload
-bytes, responsive layout, and restoration of live audio. It writes screenshots
-to `/tmp/iptv-clip-*.png` and removes its temporary media, browser profile, and
-harness. It does not connect to configured media providers or a real Zipline server.
-
 ## Channel Club versioned publishing
+
+`backend/pyproject.toml` is the authoritative application version. To cut a
+release, set it everywhere, then push an annotated tag at the tested commit:
+
+```bash
+python3 scripts/version.py --set 1.3.2
+python3 scripts/version.py
+git tag -a v1.3.2 -m "Channel Club 1.3.2"
+git push origin v1.3.2
+```
 
 `python3 scripts/version.py` checks the canonical Python project version against
 frontend metadata and both lockfiles. `--set X.Y.Z` synchronizes those application
