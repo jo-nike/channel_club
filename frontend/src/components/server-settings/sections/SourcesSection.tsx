@@ -98,6 +98,23 @@ export function SourcesSection({ state, errors, onField, onSource, idPrefix, tes
           error={errors.ersatztvBaseUrl}
           lockedBy={ersatztvLock}
         />
+        <SecretField
+          id={`${idPrefix}-ersatztvApiKey`}
+          label="API key (optional)"
+          noun="API key"
+          kind="key"
+          entry={secretEntry(state, 'ersatztvApiKey')}
+          onChange={(value) => onField('ersatztvApiKey', value)}
+          placeholder="Paste the key"
+          help={
+            <>
+              Only needed for the session stats in Admin › Status (ErsatzTV 26.8.1 or later). It's in{' '}
+              <code className="font-mono text-xs">api-secrets.json</code> in ErsatzTV's config folder.
+            </>
+          }
+          error={errors.ersatztvApiKey}
+          lockedBy={lockedBy(view, 'ersatztvApiKey')}
+        />
         <TestConnection id={`${idPrefix}-test-ersatztv`} {...ersatztvTest} onTest={() => onTest('ersatztv')} />
       </SettingCard>
     </>

@@ -134,7 +134,7 @@ export function serverReducer(state: ServerState, action: ServerAction): ServerS
     case 'setSource': {
       if (!state.settings) return state
       const draft = setSourceOn(state.settings.draft, action.kind, action.on)
-      const fields: SettingsErrorKey[] = action.kind === 'dispatcharr' ? ['dispatcharrUrl', 'dispatcharrApiKey'] : ['ersatztvBaseUrl']
+      const fields: SettingsErrorKey[] = action.kind === 'dispatcharr' ? ['dispatcharrUrl', 'dispatcharrApiKey'] : ['ersatztvBaseUrl', 'ersatztvApiKey']
       // A source switched on answers "turn on a source"; one switched off drops its own errors
       return { ...state, settings: { ...state.settings, draft }, sections: edited(state, 'sources', ...(action.on ? ['sources' as const] : fields)) }
     }

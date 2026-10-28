@@ -22,6 +22,7 @@ export const CONFIG_FIELDS = [
   'dispatcharrUrl',
   'dispatcharrApiKey',
   'ersatztvBaseUrl',
+  'ersatztvApiKey',
   'plexAuthEnabled',
   'plexServerToken',
   'plexServerMachineId',
@@ -69,6 +70,7 @@ export type AllConfigFieldsListed = Exhaustive<Exclude<ConfigField, (typeof CONF
 /** The settings shown only as set or not. A form sends a string to replace one, null to remove it. */
 export const SECRET_FIELDS = [
   'dispatcharrApiKey',
+  'ersatztvApiKey',
   'plexServerToken',
   'adminPassword',
   'viewerPassword',
@@ -168,7 +170,7 @@ export type AdvancedField = (typeof ADVANCED_GROUPS)[number]['fields'][number]
 
 /** The settings each section edits, in the order it shows them. */
 export const SECTION_FIELDS = {
-  sources: ['dispatcharrUrl', 'dispatcharrApiKey', 'ersatztvBaseUrl'],
+  sources: ['dispatcharrUrl', 'dispatcharrApiKey', 'ersatztvBaseUrl', 'ersatztvApiKey'],
   access: [
     'plexAuthEnabled',
     'plexAdminIds',
