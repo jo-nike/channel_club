@@ -22,7 +22,7 @@ x-logging: &bounded-logging
     max-file: "5"
 
 services:
-  iptv-viewer:
+  channel-club:
     image: ${IMAGE_REFERENCE:?Immutable image digest required}
     container_name: channel-club
     ports:

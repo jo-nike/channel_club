@@ -72,8 +72,11 @@ The host helper accepts `--build-id` for new releases. `/api/health` now returns
 satisfy one another's deployment checks. Legacy records without `build_id` retain
 the old health-version check for an explicit rollback; image digest verification
 still applies. Restore the recorded previous Compose file to recover its old
-container name and repository. Keep the same Compose project directory and service
-key (`iptv-viewer`) so Compose manages the rename as a service replacement.
+container name and repository. Keep the same Compose project directory: the
+project name, and so the named volumes, come from it. The service key changed from
+`iptv-viewer` to `channel-club` after 1.3.2; the helper runs `up -d --remove-orphans`
+and finds the container without naming the service, so releases and rollbacks on
+either side of the rename replace the container cleanly.
 
 Do not move published Git release tags. Bump the application version and create a
 new tag for a new release. Existing registry/SSH secrets are reused; the workflow

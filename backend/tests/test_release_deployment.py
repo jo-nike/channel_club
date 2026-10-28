@@ -268,6 +268,34 @@ def test_failed_pull_restores_compose_without_restarting(tmp_path, monkeypatch):
     assert compose_ups(run) == 0
 
 
+def test_compose_calls_survive_a_service_rename(tmp_path, monkeypatch):
+    """The service key changed (iptv-viewer -> channel-club) while container_name
+    stayed: every up removes the other key's container, in deploys and rollbacks,
+    and nothing names a service that only one side of the rename has."""
+    source = "a" * 40
+    host, run = failing_host(tmp_path, monkeypatch, {"good"})
+    release.deploy(host, stage(tmp_path, "good", [source]), source, "good", "http://h", image("1"))
+    with pytest.raises(RuntimeError):
+        release.deploy(
+            host, stage(tmp_path, "bad", [source]), source, "bad", "http://h", image("2")
+        )
+    compose = [call.args[0] for call in run.call_args_list if call.args[0][1] == "compose"]
+    ups = [args for args in compose if "up" in args]
+    assert len(ups) == 3  # good, bad, rollback to good
+    assert all(args == ["docker", "compose", "up", "-d", "--remove-orphans"] for args in ups)
+    assert ["docker", "compose", "pull"] in compose
+
+
+def test_verify_artifact_finds_the_container_without_naming_the_service(tmp_path, monkeypatch):
+    from subprocess import CompletedProcess
+
+    values = ["sha256:new-build", "container", "sha256:new-build", IMAGE]
+    run = Mock(side_effect=[CompletedProcess([], 0, stdout=value) for value in values])
+    monkeypatch.setattr(release.subprocess, "run", run)
+    assert release.verify_artifact(tmp_path, IMAGE) == "sha256:new-build"
+    assert run.call_args_list[1].args[0] == ["docker", "compose", "ps", "-q"]
+
+
 def test_failed_rollback_still_reports_the_original_error(tmp_path, monkeypatch, capsys):
     source = "a" * 40
     healthy = {"good"}
