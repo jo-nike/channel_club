@@ -3,6 +3,8 @@
 // captures the address when it is created, and the install store checks TV
 // mode when it loads; both happen while main.tsx's imports are evaluated,
 // before any code in main.tsx itself would run.
-import { applyTVModeQueryParam } from '@/hooks/useTVMode'
+import { applyTVModeQueryParam, watchTVModeClass } from '@/hooks/useTVMode'
 
 applyTVModeQueryParam()
+// After the override is stored, so the first paint is already at TV scale
+watchTVModeClass()

@@ -787,11 +787,11 @@ describe('couch styles', () => {
     expect(rule(menu)).toBe('min-width: 24rem;')
     expect(rule(`${menu} :is([role^="menuitem"], [data-slot="dropdown-menu-label"])`)).toBe('font-size: 1.5rem;\n  padding-block: 0.5rem;')
     expect(rule(`${menu} .text-xs`)).toBe('font-size: 1.125rem;')
-    expect(rule(`${menu} [data-highlighted]`)).toBe('outline: 5px solid var(--couch-focus);\n  outline-offset: -5px;')
+    expect(rule(`${menu} [data-highlighted]`)).toBe('outline: 0.3125rem solid var(--couch-focus);\n  outline-offset: -0.3125rem;')
   })
 
   it('shows remote focus in the couch focus colour with a non-colour cue: a thick outline and a scale', () => {
-    expect(rule('.couch .couch-view :focus-visible')).toBe('outline: 5px solid var(--couch-focus);\n  outline-offset: 3px;')
+    expect(rule('.couch .couch-view :focus-visible')).toBe('outline: 0.3125rem solid var(--couch-focus);\n  outline-offset: 0.1875rem;')
     expect(rule('.couch .couch-view :is(button, [role="button"]):focus-visible')).toBe('transform: scale(1.1);')
   })
 

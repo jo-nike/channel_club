@@ -12,7 +12,7 @@ export interface QRPlexLoginProps {
   onError?: (error: Error) => void
   /** Each time a new code is asked for (the first, Try Again, auto-restarts). */
   onCodeRequested?: () => void
-  /** 'tv': two columns sized to read from the sofa (steps and code left, a 400px QR right). */
+  /** 'tv': two columns sized to read from the sofa (steps and code left, a 25rem QR right). */
   variant?: QRPlexLoginVariant
   /** Start over with a fresh code on timeout, a few times, before showing Try Again. */
   autoRestart?: boolean
@@ -140,6 +140,8 @@ export function QRPlexLogin({
       <QRCodeSVG
         value={authUrl}
         size={QR_SIZE[variant]}
+        // On TV, in rem, so it scales with the screen like the rest (index.css html.tv)
+        className={tv ? 'size-100' : undefined}
         level="M"
         includeMargin={false}
         aria-label="Scan this QR code with your phone to log in"
@@ -149,7 +151,7 @@ export function QRPlexLogin({
     <div
       className={cn(
         'bg-muted animate-pulse flex items-center justify-center',
-        tv ? 'size-[448px] rounded-2xl text-2xl' : 'w-[312px] h-[312px] rounded-lg'
+        tv ? 'size-112 rounded-2xl text-2xl' : 'w-[312px] h-[312px] rounded-lg'
       )}
     >
       <span className="text-muted-foreground">Loading...</span>

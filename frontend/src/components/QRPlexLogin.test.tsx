@@ -8,8 +8,8 @@ vi.mock('@/hooks/usePlexQRAuth', () => ({
 }))
 
 vi.mock('qrcode.react', () => ({
-  QRCodeSVG: ({ value, size, 'aria-label': ariaLabel }: { value: string; size: number; 'aria-label': string }) => (
-    <div data-testid="qr-code" data-value={value} data-size={size} aria-label={ariaLabel}>
+  QRCodeSVG: ({ value, size, className, 'aria-label': ariaLabel }: { value: string; size: number; className?: string; 'aria-label': string }) => (
+    <div data-testid="qr-code" data-value={value} data-size={size} className={className} aria-label={ariaLabel}>
       QR Code Mock
     </div>
   ),
@@ -255,10 +255,11 @@ describe('QRPlexLogin', () => {
   })
 
   describe('tv variant', () => {
-    it('renders the QR at 400px beside the steps and a large code', () => {
+    it('renders the QR at 25rem (400px at 1920 wide) beside the steps and a large code', () => {
       const { container } = render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant="tv" />)
 
       expect(screen.getByTestId('qr-code')).toHaveAttribute('data-size', '400')
+      expect(screen.getByTestId('qr-code')).toHaveClass('size-100')
       expect(screen.getByText('ABCD')).toHaveClass('text-6xl', 'font-mono')
       expect(screen.getByText('plex.tv/link')).toBeInTheDocument()
       expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
@@ -281,7 +282,7 @@ describe('QRPlexLogin', () => {
       expect(screen.queryByRole('list')).not.toBeInTheDocument()
     })
 
-    it('shows a 400px placeholder while the code loads', () => {
+    it('shows a QR-sized placeholder while the code loads', () => {
       vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({
         ...defaultMockReturn,
         authUrl: null,
@@ -291,7 +292,7 @@ describe('QRPlexLogin', () => {
 
       render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant="tv" />)
 
-      expect(screen.getByText('Loading...').parentElement).toHaveClass('size-[448px]')
+      expect(screen.getByText('Loading...').parentElement).toHaveClass('size-112')
       expect(screen.queryByTestId('qr-code')).not.toBeInTheDocument()
     })
 

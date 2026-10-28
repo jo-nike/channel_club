@@ -311,10 +311,22 @@
    COUCH (10-FOOT) VIEW
    ============================ */
 
+/* TV mode (useTVMode) sets html.tv. The 10-foot screens are laid out for a
+   1920x1080 viewport, but TV browsers report anything from 960x540 to
+   3840x2160 (a 4K panel at 1x), so the root font size follows the screen:
+   16px at 1920x1080, 8px at 960x540, 32px at 3840x2160, and by the tighter
+   side in a window that isn't 16:9. Type and spacing are in rem, so every
+   screen keeps the same proportions; media queries still use the initial
+   16px. The plain calc() is for TV browsers without min().
+   The px rules below that should scale with it are in rem too. */
+html.tv {
+  font-size: calc(100vw / 120);
+  font-size: min(100vw / 120, 100vh / 67.5);
+}
+
 /* TVView sets html.couch while a TV browser has the couch view (CouchView).
    Its tokens are read only by the couch rules below and the couch view's
-   own components (the channel banner's placement). The root font size stays
-   as it is, so dialogs and the player controls reused here keep their sizes.
+   own components (the channel banner's placement).
    - --couch-safe-x/y: the title-safe margin, clear of a TV's overscan
    - --couch-focus: remote focus, in the brand colour (Club Night's amber) */
 .couch {
@@ -355,8 +367,8 @@
    colour alone. Unlayered, so it wins over focus-ring-media's white outline
    (whose dark band stays). */
 .couch .couch-view :focus-visible {
-  outline: 5px solid var(--couch-focus);
-  outline-offset: 3px;
+  outline: 0.3125rem solid var(--couch-focus);
+  outline-offset: 0.1875rem;
 }
 
 .couch .couch-view :is(button, [role="button"]):focus-visible {
@@ -385,8 +397,8 @@
 }
 
 .couch [data-slot="dropdown-menu-content"] [data-highlighted] {
-  outline: 5px solid var(--couch-focus);
-  outline-offset: -5px;
+  outline: 0.3125rem solid var(--couch-focus);
+  outline-offset: -0.3125rem;
 }
 
 /* ============================
