@@ -74,9 +74,10 @@ the old health-version check for an explicit rollback; image digest verification
 still applies. Restore the recorded previous Compose file to recover its old
 container name and repository. Keep the same Compose project directory: the
 project name, and so the named volumes, come from it. The service key changed from
-`iptv-viewer` to `channel-club` after 1.3.2; the helper runs `up -d --remove-orphans`
-and finds the container without naming the service, so releases and rollbacks on
-either side of the rename replace the container cleanly.
+`iptv-viewer` to `channel-club` after 1.3.2. The helper runs `down --remove-orphans`
+before `up -d` and finds the container without naming the service, so releases and
+rollbacks on either side of the rename replace the container cleanly. (Compose v5's
+`up --remove-orphans` alone races the old container for its name.)
 
 Do not move published Git release tags. Bump the application version and create a
 new tag for a new release. Existing registry/SSH secrets are reused; the workflow
