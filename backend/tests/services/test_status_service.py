@@ -506,6 +506,62 @@ class TestDegradedReasons:
         assert status.degraded is True
         assert status.error == "sessions API HTTP 500"
 
+    async def test_ersatztv_api_key_is_sent_on_every_api_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        keys: dict[str, str | None] = {}
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            keys[request.url.path] = request.headers.get("X-Etv-Api-Key")
+            return httpx.Response(200, json=[])
+
+        _install_upstream(monkeypatch, upstream)
+        monkeypatch.setattr(status_service.settings, "ersatztv_api_key", SecretStr("synthetic"))
+
+        status = await get_ersatztv_status()
+
+        assert status.online is True
+        assert status.degraded is False
+        assert keys == {
+            "/api/sessions": "synthetic",
+            "/api/channels": "synthetic",
+            "/api/ffmpeg/profiles": "synthetic",
+        }
+
+    async def test_ersatztv_without_an_api_key_says_it_is_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            if request.url.path.startswith("/api/"):
+                assert "X-Etv-Api-Key" not in request.headers
+                return httpx.Response(401)
+            return httpx.Response(200)
+
+        _install_upstream(monkeypatch, upstream)
+        monkeypatch.setattr(status_service.settings, "ersatztv_api_key", None)
+
+        status = await get_ersatztv_status()
+
+        assert status.online is True
+        assert status.degraded is True
+        assert status.error == "API key missing"
+
+    @pytest.mark.parametrize("code", [401, 403])
+    async def test_rejected_ersatztv_api_key_is_degraded_with_reason(
+        self, monkeypatch: pytest.MonkeyPatch, code: int
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(code if request.url.path.startswith("/api/") else 200)
+
+        _install_upstream(monkeypatch, upstream)
+        monkeypatch.setattr(status_service.settings, "ersatztv_api_key", SecretStr("wrong"))
+
+        status = await get_ersatztv_status()
+
+        assert status.online is True
+        assert status.degraded is True
+        assert status.error == f"API key rejected (HTTP {code})"
+
     async def test_real_ersatztv_connect_failure_reports_the_reason(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

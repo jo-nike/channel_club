@@ -65,6 +65,7 @@ const GATES: Partial<Record<EditableField, readonly (SourceKind | BooleanField)[
   dispatcharrUrl: ['dispatcharr'],
   dispatcharrApiKey: ['dispatcharr'],
   ersatztvBaseUrl: ['ersatztv'],
+  ersatztvApiKey: ['ersatztv'],
   plexAdminIds: ['plexAuthEnabled'],
   adminUsername: ['localAuthEnabled'],
   adminPassword: ['localAuthEnabled'],

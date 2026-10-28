@@ -71,13 +71,14 @@ PASSWORD_HASHES: dict[str, UiField] = {
 # Each saved secret and the address it is sent to
 SECRET_ADDRESSES = {
     "dispatcharr_api_key": "dispatcharr_url",
+    "ersatztv_api_key": "ersatztv_base_url",
     "zipline_token": "zipline_url",
     "ntfy_token": "ntfy_url",
 }
 # The settings each connection test reads
 PROBE_FIELDS: dict[ProbeKind, tuple[str, ...]] = {
     "dispatcharr": ("dispatcharr_url", "dispatcharr_api_key"),
-    "ersatztv": ("ersatztv_base_url",),
+    "ersatztv": ("ersatztv_base_url", "ersatztv_api_key"),
     "giphy": ("giphy_api_key",),
     "zipline": ("zipline_url", "zipline_token"),
     "ntfy": ("ntfy_url", "ntfy_topic", "ntfy_token"),
@@ -124,6 +125,7 @@ def _values(source: Settings, house_rules: dict[str, bool]) -> ConfigValues:
         dispatcharr_url=source.dispatcharr_url,
         dispatcharr_api_key=_secret(source.dispatcharr_api_key),
         ersatztv_base_url=source.ersatztv_base_url,
+        ersatztv_api_key=_secret(source.ersatztv_api_key),
         local_auth_enabled=source.local_auth_enabled,
         admin_username=source.admin_username,
         admin_password=_secret(source.admin_password, source.admin_password_hash),

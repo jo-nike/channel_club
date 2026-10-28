@@ -112,6 +112,15 @@ describe('testValues', () => {
       .toEqual({ dispatcharrUrl: 'http://tv.lan', dispatcharrApiKey: KEY })
   })
 
+  it("sends a typed ErsatzTV API key with the address, and runs without one", () => {
+    const state = settingsState({ ersatztvBaseUrl: 'http://etv.lan' })
+
+    expect(testInputError(state, 'ersatztv')).toBeNull()
+    expect(testValues(state, 'ersatztv')).toEqual({ ersatztvBaseUrl: 'http://etv.lan' })
+    expect(testValues({ ...state, draft: setField(state.draft, 'ersatztvApiKey', ` ${KEY} `) }, 'ersatztv'))
+      .toEqual({ ersatztvBaseUrl: 'http://etv.lan', ersatztvApiKey: KEY })
+  })
+
   it('leaves out what the environment locks', () => {
     const state = settingsState(
       { ntfyUrl: 'https://ntfy.sh' },
@@ -168,6 +177,7 @@ describe('describeResult', () => {
     ['dispatcharr', 'not_found', "Dispatcharr's API isn't at tv.lan:9191"],
     ['dispatcharr', 'http', 'tv.lan:9191 answered with an error'],
     ['dispatcharr', 'invalid', "tv.lan:9191 doesn't look like Dispatcharr"],
+    ['ersatztv', 'auth', 'tv.lan:9191 refused the request'],
     ['ersatztv', 'not_found', 'No ErsatzTV channel list at tv.lan:9191'],
     ['giphy', 'auth', 'GIPHY rejected this key'],
     ['giphy', 'unreachable', "Couldn't connect to GIPHY"],

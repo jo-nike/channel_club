@@ -6,6 +6,7 @@ export const DEFAULT_VALUES: ConfigValues = {
   dispatcharrUrl: '',
   dispatcharrApiKey: { set: false },
   ersatztvBaseUrl: '',
+  ersatztvApiKey: { set: false },
   localAuthEnabled: false,
   adminUsername: 'admin',
   adminPassword: { set: false },

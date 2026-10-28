@@ -99,6 +99,7 @@ export interface ConfigValues {
   dispatcharrUrl: string
   dispatcharrApiKey: SecretState
   ersatztvBaseUrl: string
+  ersatztvApiKey: SecretState
   // Who can join
   localAuthEnabled: boolean
   adminUsername: string
@@ -223,6 +224,7 @@ export type TestValues = Partial<Record<
   | 'dispatcharrUrl'
   | 'dispatcharrApiKey'
   | 'ersatztvBaseUrl'
+  | 'ersatztvApiKey'
   | 'giphyApiKey'
   | 'ziplineUrl'
   | 'ziplineToken'

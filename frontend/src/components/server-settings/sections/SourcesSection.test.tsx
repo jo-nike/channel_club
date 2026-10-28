@@ -43,9 +43,12 @@ describe('SourcesSection', () => {
     expect(screen.getByLabelText('Address')).toHaveValue('http://tv.lan')
     expect(screen.getByLabelText('API key')).toBeInTheDocument()
 
+    expect(screen.queryByLabelText('API key (optional)')).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('switch', { name: 'ErsatzTV' }))
 
     expect(screen.getAllByLabelText('Address')).toHaveLength(2)
+    expect(screen.getByLabelText('API key (optional)')).toBeInTheDocument()
   })
 
   it('says as an alert that a source is needed, on the switch the error focuses', () => {

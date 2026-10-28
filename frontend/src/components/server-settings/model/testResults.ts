@@ -12,7 +12,7 @@ import { NTFY_TOPIC_PATTERN, urlError } from './validation'
 /** The settings each test uses. */
 export const TEST_INPUTS: Record<TestKind, readonly EditableField[]> = {
   dispatcharr: ['dispatcharrUrl', 'dispatcharrApiKey'],
-  ersatztv: ['ersatztvBaseUrl'],
+  ersatztv: ['ersatztvBaseUrl', 'ersatztvApiKey'],
   giphy: ['giphyApiKey'],
   zipline: ['ziplineUrl', 'ziplineToken'],
   ntfy: ['ntfyUrl', 'ntfyTopic', 'ntfyToken'],
@@ -229,7 +229,10 @@ const FAILED: Record<
       case 'ntfy':
         return { title: `${host} refused the message`, detail: 'This topic is protected. Add an access token that can publish to it.' }
       case 'ersatztv':
-        return { title: `${host} asked for a sign-in`, detail: 'Channel Club reads ErsatzTV without one. Check the address.' }
+        return {
+          title: `${host} refused the request`,
+          detail: "If you entered an API key, copy it again from api-secrets.json in ErsatzTV's config folder. The channel list needs no sign-in, so also check the address.",
+        }
     }
   },
   not_found: (host, kind) => {

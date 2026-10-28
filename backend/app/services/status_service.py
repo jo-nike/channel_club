@@ -51,6 +51,25 @@ def _object_list(value: object) -> list[dict]:
     return value
 
 
+def ersatztv_api_headers() -> dict[str, str]:
+    """The API key header ErsatzTV 26.8.1+ requires on /api, when a key is set.
+
+    Sent per request, not on the shared client, so it never goes to the logo
+    or stream hosts that client also reaches.
+    """
+    key = settings.ersatztv_api_key
+    if key is None or not key.get_secret_value():
+        return {}
+    return {"X-Etv-Api-Key": key.get_secret_value()}
+
+
+def _sessions_http_error(status_code: int, has_key: bool) -> str:
+    """Why the sessions request failed, naming the API key when it's the cause."""
+    if status_code in (401, 403):
+        return f"API key rejected (HTTP {status_code})" if has_key else "API key missing"
+    return f"sessions API HTTP {status_code}"
+
+
 async def _fetch_ersatztv_data(
     client: httpx.AsyncClient, base_url: str, timeout: float
 ) -> tuple[list[dict] | None, list[dict], list[dict], str | None]:
@@ -70,12 +89,13 @@ async def _fetch_ersatztv_data(
     profiles_url = f"{base_url}/api/ffmpeg/profiles"
 
     log.debug("Fetching ErsatzTV data from {}", base_url)
+    headers = ersatztv_api_headers()
 
     # Fetch all three endpoints in parallel
     sessions_resp, channels_resp, profiles_resp = await asyncio.gather(
-        client.get(sessions_url, timeout=timeout),
-        client.get(channels_url, timeout=timeout),
-        client.get(profiles_url, timeout=timeout),
+        client.get(sessions_url, headers=headers, timeout=timeout),
+        client.get(channels_url, headers=headers, timeout=timeout),
+        client.get(profiles_url, headers=headers, timeout=timeout),
         return_exceptions=True,
     )
 
@@ -88,7 +108,7 @@ async def _fetch_ersatztv_data(
     if isinstance(sessions_resp, httpx.Response) and sessions_resp.status_code == 200:
         sessions = _object_list(sessions_resp.json())
     elif isinstance(sessions_resp, httpx.Response):
-        sessions_error = f"sessions API HTTP {sessions_resp.status_code}"
+        sessions_error = _sessions_http_error(sessions_resp.status_code, bool(headers))
     elif isinstance(sessions_resp, Exception):
         log.warning("Failed to fetch ErsatzTV sessions: {}", sessions_resp)
         sessions_error = f"sessions API {_reason(sessions_resp)}"

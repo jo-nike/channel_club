@@ -100,6 +100,10 @@ class Settings(BaseSettings):
 
     # ErsatzTV Configuration. Unset, its channels are unavailable.
     ersatztv_base_url: str = ""
+    # ErsatzTV API key (optional - for the session stats in Status). 26.8.1+
+    # requires it on /api; it is in api-secrets.json in ErsatzTV's config
+    # folder. Sent as "X-Etv-Api-Key: <key>".
+    ersatztv_api_key: SecretStr | None = None
 
     # ErsatzTV serves its feeds at fixed paths under the base URL.
     @property
@@ -283,6 +287,7 @@ UiField = Literal[
     "dispatcharr_url",
     "dispatcharr_api_key",
     "ersatztv_base_url",
+    "ersatztv_api_key",
     # Who can join
     "local_auth_enabled",
     "admin_username",
@@ -315,7 +320,7 @@ UI_FIELDS: tuple[UiField, ...] = get_args(UiField)
 # group also lists the env-only plaintext passwords and admin usernames.
 FIELD_GROUPS: dict[str, tuple[str, ...]] = {
     "dispatcharr": ("dispatcharr_url", "dispatcharr_api_key"),
-    "ersatztv": ("ersatztv_base_url",),
+    "ersatztv": ("ersatztv_base_url", "ersatztv_api_key"),
     "auth": (
         "local_auth_enabled",
         "admin_username",

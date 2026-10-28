@@ -221,7 +221,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case 'setSource': {
       if (!state.settings) return state
       const draft = setSourceOn(state.settings.draft, action.kind, action.on)
-      const fields: WizardErrorKey[] = action.kind === 'dispatcharr' ? ['dispatcharrUrl', 'dispatcharrApiKey'] : ['ersatztvBaseUrl']
+      const fields: WizardErrorKey[] = action.kind === 'dispatcharr' ? ['dispatcharrUrl', 'dispatcharrApiKey'] : ['ersatztvBaseUrl', 'ersatztvApiKey']
       // A source switched on answers "turn on a source"; one switched off drops its own errors
       return {
         ...state,
