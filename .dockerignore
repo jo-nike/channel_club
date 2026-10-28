@@ -38,6 +38,5 @@ htmlcov
 
 # Docs and local tooling
 README.md
-CLAUDE.md
 docker-compose.yml
 run.sh

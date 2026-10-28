@@ -47,5 +47,3 @@ describe('service worker migration', () => {
     expect(skipWaiting).not.toHaveBeenCalled()
   })
 })
-// Runtime routing is exercised by scripts/check-service-worker.mjs against the
-// actual production worker in Chrome, rather than duplicating regexes here.
