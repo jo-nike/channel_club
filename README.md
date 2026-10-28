@@ -4,6 +4,12 @@
 
 A self-hosted live TV player for watching together. Channels come from Dispatcharr and/or ErsatzTV. Viewers sign in with Plex or a local account and can follow one shared Live channel or pick their own. Chromecast is built in. Optional extras: chat with GIFs, clip capture and export, Zipline uploads, live NHL scores and a feedback button via ntfy.
 
+![The player above the channel guide](docs/screenshots/tv-guide.png)
+
+| On a phone | First-run setup |
+| --- | --- |
+| <img src="docs/screenshots/mobile.png" alt="The player and channel list on a phone" width="260"> | <img src="docs/screenshots/setup-wizard.png" alt="The setup wizard's welcome step" width="540"> |
+
 ## Quick start
 
 ```bash
