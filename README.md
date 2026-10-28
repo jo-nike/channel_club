@@ -7,7 +7,7 @@ A self-hosted live TV player for watching together. Channels come from Dispatcha
 ## Quick start
 
 ```bash
-docker run -d --name channel-club -p 8334:8334 -v channel-club-data:/data --restart unless-stopped DOCKERHUB_USER/channel-club:latest
+docker run -d --name channel-club -p 8334:8334 -v channel-club-data:/data --restart unless-stopped jonnike/channel-club:latest
 ```
 
 Open `http://<docker-host>:8334`. The first visitor runs the setup wizard and becomes the admin, so finish setup before you expose the port beyond a trusted network. The wizard walks through sign-in (Plex or username/password), channel sources and optional features. Everything can be changed later under **Admin Panel › Server**.
@@ -19,7 +19,7 @@ Settings, secrets and the shared state live in `/data`. Keep that volume when yo
 ```yaml
 services:
   channel-club:
-    image: DOCKERHUB_USER/channel-club:latest
+    image: jonnike/channel-club:latest
     container_name: channel-club
     ports:
       - "8334:8334"
