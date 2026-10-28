@@ -63,6 +63,20 @@ export type TVModeOverride = 'auto' | 'on' | 'off'
 // Tells mounted useTVMode hooks that the stored choice changed
 const TV_MODE_CHANGE_EVENT = 'tv-mode-change'
 
+/** Mark <html> with `tv` while TV mode is on: index.css scales the page to the screen by it. */
+function syncTVModeClass(): void {
+  document.documentElement.classList.toggle('tv', detectTVMode())
+}
+
+/**
+ * Keep <html>'s `tv` class in step with TV mode from now on: set it at once,
+ * before the first render, and again whenever the layout choice changes.
+ */
+export function watchTVModeClass(): void {
+  syncTVModeClass()
+  window.addEventListener(TV_MODE_CHANGE_EVENT, syncTVModeClass)
+}
+
 /** The TV layout choice stored in this browser ('auto' when there is none). */
 export function readTVModeOverride(): TVModeOverride {
   const storedPreference = readStoredPreference()
@@ -110,8 +124,9 @@ export function applyTVModeQueryParam(): void {
  * 2. WebOS user agent detection
  * 3. Tizen user agent detection
  *
- * There is no global `tv-mode` stylesheet or body class: couch (10-foot)
- * sizing lives in the components that read this hook.
+ * Couch (10-foot) sizing lives in the components that read this hook. The
+ * one global rule is the scale: <html> carries `tv` (watchTVModeClass) and
+ * index.css sizes the page to the screen by it.
  *
  * @returns boolean indicating if TV mode should be active
  */

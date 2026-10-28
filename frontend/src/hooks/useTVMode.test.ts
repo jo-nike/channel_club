@@ -7,6 +7,7 @@ import {
   applyTVModeQueryParam,
   readTVModeOverride,
   setTVModeOverride,
+  watchTVModeClass,
 } from './useTVMode'
 
 describe('useTVMode', () => {
@@ -258,6 +259,20 @@ describe('TV layout override', () => {
 
     expect(removeEventListener).toHaveBeenCalledWith('tv-mode-change', expect.any(Function))
     removeEventListener.mockRestore()
+  })
+  it('marks <html> with tv while TV mode is on, so index.css can scale the page', () => {
+    localStorage.setItem('tv-mode', 'true')
+    watchTVModeClass()
+    expect(document.documentElement).toHaveClass('tv')
+
+    setTVModeOverride('off')
+    expect(document.documentElement).not.toHaveClass('tv')
+
+    setTVModeOverride('on')
+    expect(document.documentElement).toHaveClass('tv')
+
+    setTVModeOverride('auto')
+    expect(document.documentElement).not.toHaveClass('tv')
   })
 })
 
