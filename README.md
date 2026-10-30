@@ -73,3 +73,7 @@ No variables are required: anything left unset can be configured in the app. A v
 If you put a reverse proxy in front with clips enabled, allow request bodies up to 256 MiB and responses of at least 150 seconds.
 
 Run one container per data volume. The app keeps live state in memory and is meant to run as a single instance.
+
+## License
+
+[MIT](LICENSE)
